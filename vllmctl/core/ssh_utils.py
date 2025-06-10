@@ -6,7 +6,7 @@ from typing import List, Dict
 SSH_CONFIG_PATH = os.path.expanduser("~/.ssh/config")
 
 def parse_ssh_config():
-    """Возвращает список хостов из ssh-конфига."""
+    """Returns a list of hosts from the ssh-config."""
     hosts = []
     if not os.path.exists(SSH_CONFIG_PATH):
         return hosts
@@ -28,17 +28,7 @@ def run_ssh_command(host: str, command: str, timeout=5) -> str:
     except Exception as e:
         return f"[ssh error: {e}]"
 
-def get_remote_listening_ports(host: str) -> List[int]:
-    out = run_ssh_command(host, "ss -tulpen | grep LISTEN | grep 127.0.0.1")
-    ports = set()
-    for line in out.splitlines():
-        m = re.search(r"127.0.0.1:(\d+)", line)
-        if m:
-            ports.add(int(m.group(1)))
-    return sorted(ports)
-
 def ping_remote_vllm(host: str, port: int) -> dict|None:
-    # curl на сервере
     cmd = f"curl -s --max-time 0.2 http://127.0.0.1:{port}/v1/models"
     out = run_ssh_command(host, cmd)
     if out and out.strip().startswith('{'):
@@ -51,7 +41,6 @@ def ping_remote_vllm(host: str, port: int) -> dict|None:
 
 def list_remote_models(host: str, port: int = 8000) -> Dict[int, dict]:
     info = ping_remote_vllm(host, port)
-    models = {}
     if info:
-        models[port] = info
-    return models
+        return {port: info}
+    return {} 
