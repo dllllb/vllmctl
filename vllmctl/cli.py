@@ -281,7 +281,7 @@ def kill_tmux(
 
 @app.command()
 def vllm_queue_top(
-    refresh: float = typer.Option(0.1, help="Refresh interval in seconds"),
+    refresh: float = typer.Option(1.0, help="Refresh interval in seconds"),
     history: int = typer.Option(30, help="Number of points for mini-graph (history)")
 ):
     """Show real-time vLLM queue status for all local ports (like nvtop)."""
@@ -302,13 +302,15 @@ def vllm_queue_top(
     spinner_frames = ['|', '/', '-', '\\']
     spinner_idx = [0]
     # History buffer for each port and metric
-    metric_history = {port: {'waiting': [], 'running': [], 'swapped': []} for port in vllm_ports}
+    metric_history = {port: {'waiting': [], 'running': [], 'swapped': [], 'prompt_throughput': [], 'generation_throughput': []} for port in vllm_ports}
 
     def get_metrics(port):
         try:
             r = requests.get(f"http://127.0.0.1:{port}/metrics", timeout=0.5)
             lines = r.text.splitlines()
             waiting = running = swapped = None
+            prompt_throughput = None
+            generation_throughput = None
             for line in lines:
                 if 'vllm:num_requests_waiting' in line:
                     try:
@@ -325,9 +327,19 @@ def vllm_queue_top(
                         swapped = float(line.strip().split()[-1])
                     except Exception:
                         pass
-            return waiting, running, swapped
+                if 'vllm:avg_prompt_throughput_toks_per_s' in line:
+                    try:
+                        prompt_throughput = float(line.strip().split()[-1])
+                    except Exception:
+                        pass
+                if 'vllm:avg_generation_throughput_toks_per_s' in line:
+                    try:
+                        generation_throughput = float(line.strip().split()[-1])
+                    except Exception:
+                        pass
+            return waiting, running, swapped, prompt_throughput, generation_throughput
         except Exception:
-            return None, None, None
+            return None, None, None, None, None
 
     def sparkline(data, width=history):
         # Simple ASCII sparkline for small numbers
@@ -354,11 +366,13 @@ def vllm_queue_top(
         table.add_column("Running")
         table.add_column("Wait graph")
         table.add_column("Run graph")
+        table.add_column("Prompt TPT")
+        table.add_column("Gen TPT")
         for port in vllm_ports:
             model = port_models.get(port, '-')
-            waiting, running, swapped = get_metrics(port)
+            waiting, running, swapped, prompt_throughput, generation_throughput = get_metrics(port)
             # Update history
-            for key, val in zip(['waiting', 'running'], [waiting, running]):
+            for key, val in zip(['waiting', 'running', 'prompt_throughput', 'generation_throughput'], [waiting, running, prompt_throughput, generation_throughput]):
                 if val is not None:
                     metric_history[port][key].append(val)
                     if len(metric_history[port][key]) > history:
@@ -369,7 +383,9 @@ def vllm_queue_top(
                 str(int(waiting) if waiting is not None else '-'),
                 str(int(running) if running is not None else '-'),
                 sparkline(metric_history[port]['waiting']),
-                sparkline(metric_history[port]['running'])
+                sparkline(metric_history[port]['running']),
+                str(f"{prompt_throughput:.1f}" if prompt_throughput is not None else '-'),
+                str(f"{generation_throughput:.1f}" if generation_throughput is not None else '-')
             )
         return table
 
