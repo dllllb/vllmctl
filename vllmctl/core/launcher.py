@@ -81,26 +81,31 @@ def launch_vllm(
         return None
 
     try:
-        # Create SSH tunnel session
+        # Create SSH tunnel (no tmux, just background process)
         tunnel_name = f"vllmctl_{server}_{remote_port}_{local_port}"
-        ssh_forward = f"ssh -N -L {local_port}:localhost:{remote_port} {server} -o ServerAliveInterval=30 -o ServerAliveCountMax=3"
-        create_tmux_session(tunnel_name, ssh_forward)
+        ssh_forward_cmd = [
+            "ssh", "-N", "-L", f"{local_port}:localhost:{remote_port}",
+            server, "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"
+        ]
+        tunnel_proc = subprocess.Popen(ssh_forward_cmd)
 
-        # Create VLLM server session
+        # Create VLLM server session (tmux on remote server)
         vllm_cmd = f"source ~/.bashrc && conda activate {conda_env} && vllm serve {model} --tensor-parallel-size {tensor_parallel_size} --port {remote_port}"
-        server_name = f"vllmctl_server_{server}_{remote_port}"
-        create_tmux_session(server_name, f"ssh {server} '{vllm_cmd}'")
+        server_tmux_name = f"vllmctl_server_{remote_port}"
+        remote_tmux_cmd = f"tmux new-session -d -s {server_tmux_name} '{vllm_cmd}'"
+        subprocess.run(["ssh", server, remote_tmux_cmd], check=True)
 
         if console:
-            console.print(f"\n[bold]Created tmux sessions:[/bold]")
-            console.print(f"  • SSH tunnel: [cyan]tmux attach -t {tunnel_name}[/cyan]")
-            console.print(f"  • VLLM server: [cyan]tmux attach -t {server_name}[/cyan]")
+            console.print(f"\n[bold]Created sessions:[/bold]")
+            console.print(f"  • SSH tunnel: [cyan]ssh -N -L {local_port}:localhost:{remote_port} {server}[/cyan] (running in background)")
+            console.print(f"  • VLLM server: [cyan]tmux session on remote: {server_tmux_name}[/cyan]")
             console.print(f"\n[bold]Waiting for VLLM API to become available...[/bold]")
+            console.print(f"\n[bold yellow]To view logs, run:[/bold yellow] ssh {server} tmux attach -t {server_tmux_name}")
 
         # Wait for the API to become available
         if not wait_for_vllm_api(local_port, timeout, console):
             if console:
-                console.print(f"[yellow]Check server logs with: tmux attach -t {server_name}[/yellow]")
+                console.print(f"[yellow]Check server logs with: ssh {server} tmux attach -t {server_tmux_name}[/yellow]")
             return None
 
         if console:
