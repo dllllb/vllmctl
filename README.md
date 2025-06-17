@@ -144,8 +144,15 @@ Scanning GPU utilization on hosts... ━━━━━━━━━━━━━━�
 Launch a vLLM server on a remote host and set up a local SSH tunnel.
 
 ```bash
-vllmctl launch --server <host> --model <model_name> [--conda-env <env>] [--remote-port <port>] [--local-range <range>] [--timeout <seconds>]
+vllmctl launch --server <host> --model <model_name> [--conda-env <env>] [--remote-port <port>] [--local-range <range>] [--timeout <seconds>] [--lifetime <duration>]
 ```
+
+- `--lifetime <duration>`: Maximum lifetime for the vLLM process. Supports formats like `10m` (minutes), `2h` (hours), `1d` (days), `30s` (seconds). Example:
+  ```bash
+  vllmctl launch --server myserver --model Qwen/Qwen3-4B --lifetime 2h
+  ```
+- After the specified lifetime, the vLLM server will be automatically stopped on the remote server.
+- Only the vLLM process runs in tmux on the remote server; the SSH tunnel is managed locally without tmux.
 
 ---
 

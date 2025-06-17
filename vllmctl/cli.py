@@ -156,7 +156,8 @@ def launch(
     remote_port: int = typer.Option(8000, help="Port on server for vllm serve"),
     local_range: str = typer.Option("16100-16199", help="Range of local ports for forwarding (e.g., 16100-16199)"),
     conda_env: str = typer.Option("vllm_env", help="Conda-environment for running vllm on server"),
-    timeout: int = typer.Option(600, help="Maximum waiting time for vllm start (sec)")
+    timeout: int = typer.Option(600, help="Maximum waiting time for vllm start (sec)"),
+    lifetime: str = typer.Option(None, help="Maximum lifetime for vllm process (e.g., 10m, 2h, 1d, 30s)")
 ):
     """Run vllm on server and forward port to local machine through tmux. Can attach to any session."""
     console = Console()
@@ -169,6 +170,7 @@ def launch(
         local_range=(l1, l2),
         conda_env=conda_env,
         timeout=timeout,
+        lifetime=lifetime,
         console=console
     )
     if local_port is None:

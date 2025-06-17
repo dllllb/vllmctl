@@ -3,6 +3,7 @@ import time
 import requests
 from typing import Optional, Tuple
 from .vllm_probe import get_listening_ports
+import re
 
 
 def create_tmux_session(session_name: str, command: str) -> None:
@@ -47,6 +48,26 @@ def find_free_local_port(start: int, end: int) -> Optional[int]:
     return None
 
 
+def parse_lifetime_to_seconds(lifetime: str) -> int:
+    if not lifetime:
+        return None
+    pattern = r"^(\d+)([smhd])$"
+    m = re.match(pattern, lifetime.strip().lower())
+    if not m:
+        raise ValueError("Invalid lifetime format. Use e.g. 10m, 2h, 1d, 30s")
+    value, unit = int(m.group(1)), m.group(2)
+    if unit == 's':
+        return value
+    elif unit == 'm':
+        return value * 60
+    elif unit == 'h':
+        return value * 3600
+    elif unit == 'd':
+        return value * 86400
+    else:
+        raise ValueError("Invalid time unit in lifetime. Use s, m, h, or d.")
+
+
 def launch_vllm(
     server: str,
     model: str = "Qwen/Qwen2.5-Coder-32B-Instruct",
@@ -55,6 +76,7 @@ def launch_vllm(
     local_range: Tuple[int, int] = (16100, 16199),
     conda_env: str = "vllm_env",
     timeout: int = 60,
+    lifetime: str = None,
     console=None,
 ) -> Optional[int]:
     """
@@ -68,6 +90,7 @@ def launch_vllm(
         local_range: Range of local ports to try for forwarding
         conda_env: Conda environment name with VLLM installed
         timeout: How long to wait for the API to become available
+        lifetime: Lifetime for the VLLM server (optional)
         console: Rich console for output (optional)
         
     Returns:
@@ -91,8 +114,11 @@ def launch_vllm(
 
         # Create VLLM server session (tmux on remote server)
         vllm_cmd = f"source ~/.bashrc && conda activate {conda_env} && vllm serve {model} --tensor-parallel-size {tensor_parallel_size} --port {remote_port}"
+        if lifetime:
+            seconds = parse_lifetime_to_seconds(lifetime)
+            vllm_cmd = f"timeout {seconds} bash -c '{vllm_cmd}'"
         server_tmux_name = f"vllmctl_server_{remote_port}"
-        remote_tmux_cmd = f"tmux new-session -d -s {server_tmux_name} '{vllm_cmd}'"
+        remote_tmux_cmd = f'tmux new-session -d -s {server_tmux_name} "{vllm_cmd}"'
         subprocess.run(["ssh", server, remote_tmux_cmd], check=True)
 
         if console:
