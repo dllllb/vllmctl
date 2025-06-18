@@ -2,19 +2,30 @@ import subprocess
 import re
 import requests
 import psutil
+import sys
 
 TMUX_PREFIX = "vllmctl_"
 
 def get_listening_ports():
-    result = subprocess.run(
-        ["ss", "-tulpen"], capture_output=True, text=True
-    )
-    ports = set()
-    for line in result.stdout.splitlines():
-        m = re.search(r"127.0.0.1:(\d+)", line)
-        if m:
-            ports.add(int(m.group(1)))
-    return sorted(ports)
+    try:
+        result = subprocess.run([
+            "ss", "-tulpen"
+        ], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise FileNotFoundError
+        ports = set()
+        for line in result.stdout.splitlines():
+            m = re.search(r"127.0.0.1:(\d+)", line)
+            if m:
+                ports.add(int(m.group(1)))
+        return sorted(ports)
+    except FileNotFoundError:
+        print("[vllmctl] Error: 'ss' command not found. Please install 'iproute2' (Linux) or use 'lsof' on Mac. Example: sudo apt install iproute2")
+        print("[vllmctl] On Mac, you can use: brew install lsof. Support for Mac will be added soon.")
+        return []
+    except Exception as e:
+        print(f"[vllmctl] Error running 'ss': {e}")
+        return []
 
 def ping_vllm(port):
     try:
@@ -26,26 +37,44 @@ def ping_vllm(port):
     return None
 
 def get_ssh_forwardings():
-    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
-    forwards = {}
-    for line in result.stdout.splitlines():
-        if "ssh -N -L" in line:
-            m = re.search(r"ssh -N -L (\d+):localhost:(\d+) ([^ ]+)", line)
-            if m:
-                local_port = int(m.group(1))
-                remote_port = int(m.group(2))
-                host = m.group(3)
-                pid = int(line.split()[1])
-                forwards[local_port] = (host, remote_port, pid)
-    return forwards
+    try:
+        result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise FileNotFoundError
+        forwards = {}
+        for line in result.stdout.splitlines():
+            if "ssh -N -L" in line:
+                m = re.search(r"ssh -N -L (\d+):localhost:(\d+) ([^ ]+)", line)
+                if m:
+                    local_port = int(m.group(1))
+                    remote_port = int(m.group(2))
+                    host = m.group(3)
+                    pid = int(line.split()[1])
+                    forwards[local_port] = (host, remote_port, pid)
+        return forwards
+    except FileNotFoundError:
+        print("[vllmctl] Error: 'ps' command not found. Please install 'procps' (Linux) or ensure 'ps' is available in your PATH.")
+        return {}
+    except Exception as e:
+        print(f"[vllmctl] Error running 'ps': {e}")
+        return {}
 
 def get_tmux_sessions():
-    result = subprocess.run(["tmux", "ls"], capture_output=True, text=True)
-    sessions = []
-    for line in result.stdout.splitlines():
-        name = line.split(':')[0]
-        sessions.append(name)
-    return sessions
+    try:
+        result = subprocess.run(["tmux", "ls"], capture_output=True, text=True)
+        if result.returncode != 0:
+            raise FileNotFoundError
+        sessions = []
+        for line in result.stdout.splitlines():
+            name = line.split(':')[0]
+            sessions.append(name)
+        return sessions
+    except FileNotFoundError:
+        print("[vllmctl] Error: 'tmux' command not found. Please install 'tmux'. Example: sudo apt install tmux or brew install tmux")
+        return []
+    except Exception as e:
+        print(f"[vllmctl] Error running 'tmux ls': {e}")
+        return []
 
 def list_local_models():
     ports = get_listening_ports()

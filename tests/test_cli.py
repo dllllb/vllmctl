@@ -16,7 +16,7 @@ def no_real_requests(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def fake_get_listening_ports(monkeypatch):
-    monkeypatch.setattr("vllmctl.vllm_probe.get_listening_ports", lambda: set())
+    monkeypatch.setattr("vllmctl.core.vllm_probe.get_listening_ports", lambda: set())
 
 @pytest.fixture(autouse=True)
 def fake_subprocess_run(monkeypatch):
@@ -44,8 +44,8 @@ def test_launch_success():
         "launch", "--server", "server1", "--model", "Qwen/Qwen2.5-Coder-32B-Instruct", "--timeout", "2"
     ])
     assert result.exit_code == 0
-    assert "vllm поднялся!" in result.output
-    assert "tmux attach -t vllmctl_vllm_server1_8000" in result.output
+    assert "✓ VLLM is ready!" in result.output
+    assert "tmux attach -t vllmctl_server_8000" in result.output
 
 
 def test_launch_timeout(monkeypatch):
@@ -53,7 +53,7 @@ def test_launch_timeout(monkeypatch):
     result = runner.invoke(app, [
         "launch", "--server", "server1", "--model", "Qwen/Qwen2.5-Coder-32B-Instruct", "--timeout", "1"])
     assert result.exit_code != 0
-    assert "vllm не поднялся" in result.output
+    assert "VLLM API did not start" in result.output
 
 
 def test_tmux_forwards():
@@ -65,7 +65,7 @@ def test_tmux_forwards():
 def test_kill_tmux():
     result = runner.invoke(app, ["kill-tmux", "vllmctl_vllm_server1_8000"])
     assert result.exit_code == 0
-    assert "Сессия vllmctl_vllm_server1_8000 убита" in result.output
+    assert "Session vllmctl_vllm_server1_8000 killed" in result.output
 
 
 def test_clean_tmux_forwards():

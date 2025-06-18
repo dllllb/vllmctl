@@ -1,7 +1,7 @@
 import os
 import subprocess
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 SSH_CONFIG_PATH = os.path.expanduser("~/.ssh/config")
 
@@ -28,7 +28,7 @@ def run_ssh_command(host: str, command: str, timeout=5) -> str:
     except Exception as e:
         return f"[ssh error: {e}]"
 
-def ping_remote_vllm(host: str, port: int) -> dict|None:
+def ping_remote_vllm(host: str, port: int) -> Optional[dict]:
     cmd = f"curl -s --max-time 0.2 http://127.0.0.1:{port}/v1/models"
     out = run_ssh_command(host, cmd)
     if out and out.strip().startswith('{'):

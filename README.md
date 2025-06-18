@@ -40,6 +40,22 @@ pip install -r requirements.txt
 - Ensure `tmux` is installed on both local and remote machines
 - Passwordless SSH access is recommended
 
+## 🐚 Shell Autocompletion
+
+To enable shell autocompletion for vllmctl, run:
+
+```bash
+vllmctl --install-completion
+```
+
+Or, to see the completion script for your shell:
+
+```bash
+vllmctl --show-completion
+```
+
+You can add the output to your shell profile (e.g., `.bashrc`, `.zshrc`) for persistent autocompletion.
+
 ---
 
 ## 🛠️ Commands Overview
