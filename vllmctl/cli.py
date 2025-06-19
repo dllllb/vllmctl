@@ -3,7 +3,7 @@ import re as regexlib
 from vllmctl.core.vllm_probe import list_local_models, get_listening_ports, ping_vllm, get_tmux_sessions
 from vllmctl.core.ssh_utils import parse_ssh_config, list_remote_models, run_ssh_command
 from vllmctl.core.forward import auto_forward_ports
-from vllmctl.core.launcher import launch_vllm
+from vllmctl.core.launcher import launch_vllm, launch_vllm_with_args
 from rich.progress import track
 from rich.table import Table
 from rich.console import Console
@@ -147,6 +147,61 @@ def auto_forward(
         )
     console = Console()
     console.print(table)
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def serve(
+    # vllmctl-specific arguments (должны быть в начале, не конфликтуют с vllm)
+    server: str = typer.Option(..., "--server", help="Server name (from ssh-config)"),
+    conda_env: str = typer.Option("vllm_env", "--conda-env", help="Conda environment for running vllm on server"),
+    local_range: str = typer.Option("16100-16199", "--local-range", help="Range of local ports for forwarding (e.g., 16100-16199)"),
+    timeout: int = typer.Option(600, "--timeout", help="Maximum waiting time for vllm start (sec)"),
+    lifetime: str = typer.Option(None, "--lifetime", help="Maximum lifetime for vllm process (e.g., 10m, 2h, 1d, 30s)"),
+    
+    # Model as positional argument (like vllm serve)
+    model: str = typer.Argument(help="Model name or path to serve"),
+    
+    # Context object to capture all unknown arguments
+    ctx: typer.Context = None,
+):
+    """
+    Launch vLLM server on remote host (like 'vllm serve' but with remote execution).
+    
+    This command accepts all standard vllm serve arguments. Examples:
+    
+    vllmctl serve --server server1 Qwen/Qwen2.5-32B --tensor-parallel-size 8 --port 8000
+    
+    vllmctl serve --server gpu-node --lifetime 2h \\
+        Qwen/Qwen3-32B --reasoning-parser deepseek_r1 --tensor-parallel-size 8
+    """
+    console = Console()
+    
+    # Parse local range
+    try:
+        l1, l2 = map(int, local_range.split('-'))
+        local_range_tuple = (l1, l2)
+    except Exception:
+        console.print("[red]Error in local_range format. Example: 16100-16199[/red]")
+        raise typer.Exit(1)
+    
+    # Get additional VLLM arguments from context
+    vllm_extra_args = []
+    if ctx and ctx.args:
+        vllm_extra_args = ctx.args
+    
+    # Launch vLLM with modified launcher
+    local_port = launch_vllm_with_args(
+        server=server,
+        model=model,
+        vllm_extra_args=vllm_extra_args,
+        local_range=local_range_tuple,
+        conda_env=conda_env,
+        timeout=timeout,
+        lifetime=lifetime,
+        console=console
+    )
+    
+    if local_port is None:
+        raise typer.Exit(1)
 
 @app.command()
 def launch(
