@@ -156,19 +156,38 @@ Scanning GPU utilization on hosts... ━━━━━━━━━━━━━━�
 
 ---
 
-### 7. `launch`
+### 7. `serve` (recommended)
 Launch a vLLM server on a remote host and set up a local SSH tunnel.
 
 ```bash
-vllmctl launch --server <host> --model <model_name> [--conda-env <env>] [--remote-port <port>] [--local-range <range>] [--timeout <seconds>] [--lifetime <duration>]
+vllmctl serve --server <host> [OPTIONS] <model_name> [EXTRA_ARGS]
 ```
 
-- `--lifetime <duration>`: Maximum lifetime for the vLLM process. Supports formats like `10m` (minutes), `2h` (hours), `1d` (days), `30s` (seconds). Example:
-  ```bash
-  vllmctl launch --server myserver --model Qwen/Qwen3-4B --lifetime 2h
-  ```
+**Key options:**
+- `--conda-env <env>`: Conda environment to use on the remote server (default: vllm_env)
+- `--local-range <start-end>`: Range of local ports for forwarding (default: 16100-16199)
+- `--timeout <seconds>`: Maximum waiting time for vLLM API to become available (default: 600)
+- `--lifetime <duration>`: Maximum lifetime for the vLLM process. Supports formats like `10m` (minutes), `2h` (hours), `1d` (days), `30s` (seconds)
+- `--tensor-parallel-size <N>`: Number of GPUs to use (passed to vllm serve)
+- `--remote-port <port>`: Port to use on the remote server (default: 8000)
+- Any additional arguments after the model name are passed directly to `vllm serve` (e.g. `--reasoning-parser ...`)
+
+**Examples:**
+```bash
+vllmctl serve --server myserver Qwen/Qwen3-4B --tensor-parallel-size 2 --remote-port 8001
+vllmctl serve --server myserver --lifetime 2h Qwen/Qwen3-4B --tensor-parallel-size 2 --port 8001
+vllmctl serve --server myserver Qwen/Qwen3-4B --reasoning-parser deepseek_r1 --tensor-parallel-size 8
+```
+
 - After the specified lifetime, the vLLM server will be automatically stopped on the remote server.
-- Only the vLLM process runs in tmux on the remote server; the SSH tunnel is managed locally without tmux.
+- Both the vLLM process and the SSH tunnel run in tmux sessions for reliability.
+- You can view logs with:
+  ```bash
+  ssh <host> tmux attach -t vllmctl_server_<port>
+  ```
+
+#### ⚠️ `launch` is deprecated
+The `launch` command is now deprecated and will be removed in a future release. Please use `serve` instead. If you call `launch`, it will redirect to `serve` and print a warning.
 
 ---
 

@@ -3,7 +3,7 @@ import re as regexlib
 from vllmctl.core.vllm_probe import list_local_models, get_listening_ports, ping_vllm, get_tmux_sessions
 from vllmctl.core.ssh_utils import parse_ssh_config, list_remote_models, run_ssh_command
 from vllmctl.core.forward import auto_forward_ports
-from vllmctl.core.launcher import launch_vllm, launch_vllm_with_args, parse_lifetime_to_seconds, create_tmux_ssh_forward
+from vllmctl.core.launcher import launch_vllm_with_args, parse_lifetime_to_seconds, create_tmux_ssh_forward
 from rich.progress import track
 from rich.table import Table
 from rich.console import Console
