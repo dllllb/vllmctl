@@ -4,6 +4,7 @@ import requests
 from typing import Optional, Tuple
 from .vllm_probe import get_listening_ports
 import re
+from .forward import create_tmux_ssh_forward, find_free_local_port
 
 
 def create_tmux_session(session_name: str, command: str) -> None:
@@ -39,15 +40,6 @@ def wait_for_vllm_api(local_port: int, timeout: int = 60, console=None) -> bool:
         time.sleep(2)
 
 
-def find_free_local_port(start: int, end: int) -> Optional[int]:
-    """Find a free local port in the given range."""
-    used_ports = set(get_listening_ports())
-    for port in range(start, end + 1):
-        if port not in used_ports:
-            return port
-    return None
-
-
 def parse_lifetime_to_seconds(lifetime: str) -> int:
     if not lifetime:
         return None
@@ -75,7 +67,7 @@ def launch_vllm(
     remote_port: int = 8000,
     local_range: Tuple[int, int] = (16100, 16199),
     conda_env: str = "vllm_env",
-    timeout: int = 60,
+    timeout: int = 600,
     lifetime: str = None,
     console=None,
 ) -> Optional[int]:
@@ -97,20 +89,15 @@ def launch_vllm(
         The local port number if successful, None otherwise
     """
     # Find a free local port
-    local_port = find_free_local_port(*local_range)
+    local_port = find_free_local_port(local_range)
     if not local_port:
         if console:
             console.print("[red]No free local ports available[/red]")
         return None
 
     try:
-        # Create SSH tunnel (no tmux, just background process)
-        tunnel_name = f"vllmctl_{server}_{remote_port}_{local_port}"
-        ssh_forward_cmd = [
-            "ssh", "-N", "-L", f"{local_port}:localhost:{remote_port}",
-            server, "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"
-        ]
-        tunnel_proc = subprocess.Popen(ssh_forward_cmd)
+        # Create SSH tunnel using tmux (unified)
+        create_tmux_ssh_forward(None, server, remote_port, local_port)
 
         # Create VLLM server session (tmux on remote server)
         vllm_cmd = f"source ~/.bashrc && conda activate {conda_env} && vllm serve {model} --tensor-parallel-size {tensor_parallel_size} --port {remote_port}"
@@ -125,6 +112,8 @@ def launch_vllm(
             console.print(f"\n[bold]Created sessions:[/bold]")
             console.print(f"  • SSH tunnel: [cyan]ssh -N -L {local_port}:localhost:{remote_port} {server}[/cyan] (running in background)")
             console.print(f"  • VLLM server: [cyan]tmux session on remote: {server_tmux_name}[/cyan]")
+            console.print(f"  • VLLM livetime: [cyan]{lifetime}[/cyan]")
+            console.print(f"  • VLLM timeout: [cyan]{timeout} sec[/cyan]")
             console.print(f"\n[bold]Waiting for VLLM API to become available...[/bold]")
             console.print(f"\n[bold yellow]To view logs, run:[/bold yellow] ssh {server} tmux attach -t {server_tmux_name}")
 

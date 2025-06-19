@@ -24,14 +24,10 @@ class ForwardSession:
     reason: Optional[str] = None
 
     def check_alive(self):
-        # Check if tmux session exists on remote
-        tmux_check_cmd = f"tmux has-session -t vllmctl_server_{self.remote_port} 2>/dev/null && echo 1 || echo 0"
-        try:
-            out = run_ssh_command(self.server, tmux_check_cmd, timeout=5)
-            tmux_exists = out.strip() == "1"
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not check tmux session on {self.server}: {e}[/yellow]")
-            tmux_exists = False
+        # Check if local tmux session exists for the SSH tunnel
+        session_name = f"vllmctl_{self.server}_{self.remote_port}_{self.local_port}"
+        tmux_sessions = get_tmux_sessions()  # This should list local tmux sessions
+        tmux_exists = session_name in tmux_sessions
         # Check if model API responds
         model_alive = False
         try:
@@ -42,7 +38,7 @@ class ForwardSession:
             pass
         self.alive = tmux_exists and model_alive
         if not tmux_exists:
-            self.reason = "No tmux session on remote"
+            self.reason = "No local tmux session for SSH tunnel"
         elif not model_alive:
             self.reason = "Model API not responding"
         else:
@@ -50,6 +46,13 @@ class ForwardSession:
         return self.alive
 
 def find_free_local_port(port_range=(16100, 16199)):
+    """
+    Find a free local port in the given range (tuple).
+    Args:
+        port_range: Tuple (start, end) of port range.
+    Returns:
+        An available port number, or None if none are available.
+    """
     used = set(get_listening_ports())
     for port in range(port_range[0], port_range[1]+1):
         if port not in used:
@@ -57,6 +60,10 @@ def find_free_local_port(port_range=(16100, 16199)):
     return None
 
 def create_tmux_ssh_forward(session_name, host, remote_port, local_port):
+    """
+    Create a local tmux session that runs an SSH tunnel forwarding local_port to remote_port on host.
+    The session name is always vllmctl_{host}_{remote_port}_{local_port}.
+    """
     session_name = f"vllmctl_{host}_{remote_port}_{local_port}"
     cmd = [
         "tmux", "new-session", "-d", "-s", session_name,
@@ -202,13 +209,14 @@ def kill_tmux_session(session_name):
 def list_forward_sessions():
     """
     Returns a list of ForwardSession objects for all current forwards.
+    Checks for local tmux sessions for SSH tunnels using the correct session name pattern.
     """
     ssh_forwards = get_ssh_forwardings()
     tmux_sessions = get_tmux_sessions()
     sessions = []
     for local_port, (server, remote_port, pid) in ssh_forwards.items():
-        tmux_name = f"vllmctl_server_{remote_port}"
-        tmux_exists = tmux_name in tmux_sessions
+        session_name = f"vllmctl_{server}_{remote_port}_{local_port}"
+        tmux_exists = session_name in tmux_sessions
         # Try to get model name
         model_name = None
         info = ping_vllm(local_port)
@@ -218,7 +226,7 @@ def list_forward_sessions():
             local_port=local_port,
             remote_port=remote_port,
             server=server,
-            tmux_session=tmux_name if tmux_exists else None,
+            tmux_session=session_name if tmux_exists else None,
             model_name=model_name
         )
         session.check_alive()
