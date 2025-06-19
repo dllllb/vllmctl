@@ -60,81 +60,6 @@ def parse_lifetime_to_seconds(lifetime: str) -> int:
         raise ValueError("Invalid time unit in lifetime. Use s, m, h, or d.")
 
 
-def launch_vllm(
-    server: str,
-    model: str = "Qwen/Qwen2.5-Coder-32B-Instruct",
-    tensor_parallel_size: int = 8,
-    remote_port: int = 8000,
-    local_range: Tuple[int, int] = (16100, 16199),
-    conda_env: str = "vllm_env",
-    timeout: int = 600,
-    lifetime: str = None,
-    console=None,
-) -> Optional[int]:
-    """
-    Launch VLLM on a remote server and forward the port locally using tmux sessions.
-    
-    Args:
-        server: SSH host to launch VLLM on
-        model: Model name/path to serve
-        tensor_parallel_size: Number of GPUs to use
-        remote_port: Port to use on the remote server
-        local_range: Range of local ports to try for forwarding
-        conda_env: Conda environment name with VLLM installed
-        timeout: How long to wait for the API to become available
-        lifetime: Lifetime for the VLLM server (optional)
-        console: Rich console for output (optional)
-        
-    Returns:
-        The local port number if successful, None otherwise
-    """
-    # Find a free local port
-    local_port = find_free_local_port(local_range)
-    if not local_port:
-        if console:
-            console.print("[red]No free local ports available[/red]")
-        return None
-
-    try:
-        # Create SSH tunnel using tmux (unified)
-        create_tmux_ssh_forward(None, server, remote_port, local_port)
-
-        # Create VLLM server session (tmux on remote server)
-        vllm_cmd = f"source ~/.bashrc && conda activate {conda_env} && vllm serve {model} --tensor-parallel-size {tensor_parallel_size} --port {remote_port}"
-        if lifetime:
-            seconds = parse_lifetime_to_seconds(lifetime)
-            vllm_cmd = f"timeout {seconds} bash -c '{vllm_cmd}'"
-        server_tmux_name = f"vllmctl_server_{remote_port}"
-        remote_tmux_cmd = f'tmux new-session -d -s {server_tmux_name} "{vllm_cmd}"'
-        subprocess.run(["ssh", server, remote_tmux_cmd], check=True)
-
-        if console:
-            console.print(f"\n[bold]Created sessions:[/bold]")
-            console.print(f"  • SSH tunnel: [cyan]ssh -N -L {local_port}:localhost:{remote_port} {server}[/cyan] (running in background)")
-            console.print(f"  • VLLM server: [cyan]tmux session on remote: {server_tmux_name}[/cyan]")
-            console.print(f"  • VLLM livetime: [cyan]{lifetime}[/cyan]")
-            console.print(f"  • VLLM timeout: [cyan]{timeout} sec[/cyan]")
-            console.print(f"\n[bold]Waiting for VLLM API to become available...[/bold]")
-            console.print(f"\n[bold yellow]To view logs, run:[/bold yellow] ssh {server} tmux attach -t {server_tmux_name}")
-
-        # Wait for the API to become available
-        if not wait_for_vllm_api(local_port, timeout, console):
-            if console:
-                console.print(f"[yellow]Check server logs with: ssh {server} tmux attach -t {server_tmux_name}[/yellow]")
-            return None
-
-        if console:
-            console.print(f"\n[bold green]✓ VLLM is ready![/bold green]")
-            console.print(f"[bold]API endpoint:[/bold] http://localhost:{local_port}/v1/completions")
-
-        return local_port
-
-    except subprocess.CalledProcessError as e:
-        if console:
-            console.print(f"[red]Failed to create tmux session: {e}[/red]")
-        return None
-
-
 def launch_vllm_with_args(
     server: str,
     model: str,
@@ -147,30 +72,16 @@ def launch_vllm_with_args(
 ) -> Optional[int]:
     """
     Launch VLLM on a remote server with arbitrary arguments and forward the port locally.
-    
-    Args:
-        server: SSH host to launch VLLM on
-        model: Model name/path to serve
-        vllm_extra_args: Additional arguments to pass to vllm serve
-        local_range: Range of local ports to try for forwarding
-        conda_env: Conda environment name with VLLM installed
-        timeout: How long to wait for the API to become available
-        lifetime: Lifetime for the VLLM server (optional)
-        console: Rich console for output (optional)
-        
-    Returns:
-        The local port number if successful, None otherwise
+    Uses tmux for SSH tunnel and remote session, and prints detailed info (livetime, timeout, log commands).
     """
     if vllm_extra_args is None:
         vllm_extra_args = []
-    
     # Find a free local port
-    local_port = find_free_local_port(*local_range)
+    local_port = find_free_local_port(local_range)
     if not local_port:
         if console:
             console.print("[red]No free local ports available[/red]")
         return None
-
     try:
         # Extract port from vllm arguments or use default
         remote_port = 8000
@@ -182,60 +93,45 @@ def launch_vllm_with_args(
                     break
                 except ValueError:
                     pass
-
-        # Create SSH tunnel (no tmux, just background process)
-        tunnel_name = f"vllmctl_{server}_{remote_port}_{local_port}"
-        ssh_forward_cmd = [
-            "ssh", "-N", "-L", f"{local_port}:localhost:{remote_port}",
-            server, "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3"
-        ]
-        tunnel_proc = subprocess.Popen(ssh_forward_cmd)
-
+        # Создаём SSH туннель через tmux (как в launch_vllm)
+        create_tmux_ssh_forward(None, server, remote_port, local_port)
         # Build vllm command with extra arguments
         vllm_cmd_parts = [
             "source ~/.bashrc",
             f"conda activate {conda_env}",
             f"vllm serve {model}"
         ]
-        
         # Add extra arguments
         if vllm_extra_args:
             vllm_cmd_parts[-1] += " " + " ".join(vllm_extra_args)
-        
         # If no port specified in extra args, add default port
         if not any(arg in ['--port', '-p'] for arg in vllm_extra_args):
             vllm_cmd_parts[-1] += f" --port {remote_port}"
-        
         vllm_cmd = " && ".join(vllm_cmd_parts)
-        
         if lifetime:
             seconds = parse_lifetime_to_seconds(lifetime)
             vllm_cmd = f"timeout {seconds} bash -c '{vllm_cmd}'"
-            
         server_tmux_name = f"vllmctl_server_{remote_port}"
         remote_tmux_cmd = f'tmux new-session -d -s {server_tmux_name} "{vllm_cmd}"'
         subprocess.run(["ssh", server, remote_tmux_cmd], check=True)
-
         if console:
             console.print(f"\n[bold]Created sessions:[/bold]")
             console.print(f"  • SSH tunnel: [cyan]ssh -N -L {local_port}:localhost:{remote_port} {server}[/cyan] (running in background)")
             console.print(f"  • VLLM server: [cyan]tmux session on remote: {server_tmux_name}[/cyan]")
+            console.print(f"  • VLLM livetime: [cyan]{lifetime}[/cyan]")
+            console.print(f"  • VLLM timeout: [cyan]{timeout} sec[/cyan]")
             console.print(f"\n[bold]VLLM command:[/bold] {vllm_cmd}")
             console.print(f"\n[bold]Waiting for VLLM API to become available...[/bold]")
             console.print(f"\n[bold yellow]To view logs, run:[/bold yellow] ssh {server} tmux attach -t {server_tmux_name}")
-
         # Wait for the API to become available
         if not wait_for_vllm_api(local_port, timeout, console):
             if console:
                 console.print(f"[yellow]Check server logs with: ssh {server} tmux attach -t {server_tmux_name}[/yellow]")
             return None
-
         if console:
             console.print(f"\n[bold green]✓ VLLM is ready![/bold green]")
             console.print(f"[bold]API endpoint:[/bold] http://localhost:{local_port}/v1/completions")
-
         return local_port
-
     except subprocess.CalledProcessError as e:
         if console:
             console.print(f"[red]Failed to create tmux session: {e}[/red]")
