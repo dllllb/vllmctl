@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="vllmctl",
-    version="0.1.0",
+    version="0.2.0",
     description="CLI tool for launching and managing vllm model servers via SSH and tmux",
     author="adefful46@gmail.com",
     license="MIT",
